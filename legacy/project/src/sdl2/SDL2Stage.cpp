@@ -14,6 +14,7 @@
 #ifdef HX_WINDOWS
 #include <SDL_syswm.h>
 #include <Windows.h>
+#include <mmsystem.h>
 #endif
 
 
@@ -1896,50 +1897,53 @@ void StartAnimation()
    }
 #else
    SDL_Event event;
-   bool firstTime = true;
+   double next;
+   #ifdef HX_WINDOWS
+   timeBeginPeriod(1);
+   // TODO: toggle process priority based on window focus
+   // SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+   #endif
    while(!sgDead)
    {
-      event.type = SDL_NOEVENT;
-      while (!sgDead && (firstTime || SDL_WaitEvent(&event)))
+      while (SDL_PollEvent(&event))
       {
-         firstTime = false;
-         if (sgTimerActive && sgTimerID)
-         {
-            SDL_RemoveTimer(sgTimerID);
-            sgTimerActive = false;
-            sgTimerID = 0;
-         }
-         
-         ProcessEvent(event);
+         ProcessEvent (event);
          if (sgDead) break;
          event.type = SDL_NOEVENT;
-         
-         while (SDL_PollEvent(&event))
-         {
-            ProcessEvent (event);
-            if (sgDead) break;
-            event.type = -1;
-         }
-         
-         Event poll(etPoll);
-         sgSDLFrame->ProcessEvent(poll);
-         
-         if (sgDead) break;
-         
-         double next = sgSDLFrame->GetStage()->GetNextWake() - GetTimeStamp();
-         
-         if (next > 0.001)
-         {
-            int snooze = next*1000.0;
-            sgTimerActive = true;
-            sgTimerID = SDL_AddTimer(snooze, OnTimer, 0);
-         }
-         else
-         {
-            OnTimer(0, 0);
-         }
       }
+
+      next = sgSDLFrame->GetStage()->GetNextWake() - GetTimeStamp();
+
+      if (next > 0.001)
+      {
+         #ifdef HX_WINDOWS
+         Sleep(1);
+         #else
+         usleep(1000);
+         #endif
+         continue;
+      }
+      else if(next > 0) {
+         while((sgSDLFrame->GetStage()->GetNextWake() - GetTimeStamp()) > 0);
+      }
+
+      /* is this second poll necessary? at worst it will be just under 1ms plus 
+      frame render time before another poll */
+      while (SDL_PollEvent(&event))
+      {
+         ProcessEvent (event);
+         if (sgDead) break;
+         event.type = SDL_NOEVENT;
+      }
+         
+      Event poll(etPoll);
+      sgSDLFrame->ProcessEvent(poll);
+         
+      if (sgDead) break;
    }
+   #ifdef HX_WINDOWS
+   timeEndPeriod(1);
+   #endif
 #endif
    Event deactivate(etDeactivate);
    sgSDLFrame->ProcessEvent(deactivate);
